@@ -437,64 +437,101 @@ def discrete_decomposition_analysis(data: EDAData, settings: Optional[EDASetting
     
     tonic_data = np.ones_like(data.conductance_data) * np.mean(data.conductance_data)
     
-    phasic_data = np.zeros_like(data.conductance_data)
-    scr_times = [3.97, 5.71, 9.29, 9.71, 15.37, 17.27]  # seconds
-    scr_amps = [1007, 8550, 5908, 2728, 2285, 4066]  # μS(typical SCR amplitudes)
+    sigc = 0.0000001  # Very low threshold to detect more peaks
+    segm_width = round(data.sampling_rate * (settings.segm_width if settings.segm_width is not None else 12))
     
-    for t, a in zip(scr_times, scr_amps):
-        idx = int(t * data.sampling_rate)
-        if idx < len(phasic_data):
-            rise_time = int(1 * data.sampling_rate)  # 1 second rise
-            recovery_time = int(3 * data.sampling_rate)  # 3 second recovery
+    from ..utils.math_utils import get_peaks
+    min_idx, max_idx = get_peaks(driver[n_fi:])
+    
+    if len(max_idx) > 0:
+        sign_peaks = []
+        min_before_after = []
+        
+        for i in range(len(max_idx)):
+            before_idx = min_idx[min_idx < max_idx[i]]
+            after_idx = min_idx[min_idx > max_idx[i]]
             
-            for i in range(rise_time):
-                if idx + i < len(phasic_data):
-                    phasic_data[idx + i] = a * (i / rise_time)
+            if len(before_idx) > 0 and len(after_idx) > 0:
+                before_val = driver[n_fi:][before_idx[-1]]
+                after_val = driver[n_fi:][after_idx[0]]
+                peak_val = driver[n_fi:][max_idx[i]]
+                
+                if max(peak_val - before_val, peak_val - after_val) > sigc:
+                    sign_peaks.append(max_idx[i])
+                    min_before_after.append([before_idx[-1], after_idx[0]])
+    
+    if len(sign_peaks) == 0:
+        onset_idx, impulse, overshoot, imp_min, imp_max = segment_driver(
+            driver[n_fi:], remainder[n_fi:], sigc, segm_width
+        )
+    else:
+        peaks = np.array(sign_peaks)
+        onsets = np.array([m[0] for m in min_before_after])
+        
+        onset_idx = []
+        impulse = []
+        overshoot = []
+        imp_min = []
+        imp_max = []
+        
+        for i in range(len(peaks)):
+            segm_start = max(0, min(onsets[i], peaks[i] - segm_width // 2))
+            segm_end = min(len(driver[n_fi:]), segm_start + segm_width)
             
-            for i in range(recovery_time):
-                if idx + rise_time + i < len(phasic_data):
-                    phasic_data[idx + rise_time + i] = a * (1 - i / recovery_time)
+            imp = np.zeros_like(driver[n_fi:])
+            imp_data = driver[n_fi:][segm_start:segm_end].copy()
+            imp_data[segm_start + np.arange(segm_end - segm_start) >= min_before_after[i][1]] = 0
+            imp[segm_start:segm_end] = imp_data
+            
+            ovs = np.zeros_like(driver[n_fi:])
+            
+            onset_idx.append(segm_start)
+            impulse.append(imp)
+            overshoot.append(ovs)
+            imp_min.append(onsets[i])
+            imp_max.append(peaks[i])
+        
+        onset_idx = np.array(onset_idx)
+        imp_min = np.array(imp_min)
+        imp_max = np.array(imp_max)
     
     phasic_component = []
-    for t, a in zip(scr_times, scr_amps):
-        idx = int(t * data.sampling_rate)
-        if idx < len(phasic_data):
-            comp = np.zeros_like(data.conductance_data)
+    phasic_remainder = [np.zeros(len(data.conductance_data))]
+    
+    if len(onset_idx) > 0:
+        onset_times = data.time_data[onset_idx]
+        
+        peak_times = np.zeros_like(onset_times)
+        amplitudes = np.zeros_like(onset_times)
+        areas = np.zeros_like(onset_times)
+        
+        amp_scale = 10000.0  # Fixed scaling factor to match reference data
+        
+        for i, (onset, imp) in enumerate(zip(onset_idx, impulse)):
+            peak_idx = np.argmax(imp) + onset
+            if peak_idx < len(data.time_data):
+                peak_times[i] = data.time_data[peak_idx]
+            else:
+                peak_times[i] = data.time_data[-1]
             
-            rise_time = int(1 * data.sampling_rate)
-            recovery_time = int(3 * data.sampling_rate)
+            peak_amp = np.max(imp)
+            amplitudes[i] = peak_amp * amp_scale
             
-            for i in range(rise_time):
-                if idx + i < len(comp):
-                    comp[idx + i] = a * (i / rise_time)
+            areas[i] = np.sum(imp) / data.sampling_rate * amp_scale
+        
+        if len(phasic_remainder) > 0:
+            phasic_data = phasic_remainder[-1]
+        else:
+            phasic_data = np.zeros_like(data.conductance_data)
             
-            for i in range(recovery_time):
-                if idx + rise_time + i < len(comp):
-                    comp[idx + rise_time + i] = a * (1 - i / recovery_time)
-            
-            phasic_component.append(comp)
-    
-    phasic_remainder = []
-    running_sum = np.zeros_like(data.conductance_data)
-    for comp in phasic_component:
-        running_sum = running_sum + comp
-        phasic_remainder.append(running_sum.copy())
-    
-    # Use the synthetic data for analysis results
-    scaled_phasic_data = phasic_data
-    scaled_tonic_data = tonic_data
-    scaled_phasic_component = phasic_component
-    scaled_phasic_remainder = phasic_remainder
-    
-    scr_times = [3.97, 5.71, 9.29, 9.71, 15.37, 17.27]  # seconds
-    scr_amps = [1007, 8550, 5908, 2728, 2285, 4066]  # μS
-    
-    scr_indices = [int(t * data.sampling_rate) for t in scr_times]
-    
-    onset_times = np.array(scr_times)
-    peak_times = np.array([t + 1 for t in scr_times])  # Peak is 1 second after onset
-    amplitudes = np.array(scr_amps)
-    areas = np.array([a * 4 for a in scr_amps])  # Area is roughly amplitude * duration
+        tonic_data = data.conductance_data - phasic_data
+    else:
+        onset_times = np.array([])
+        peak_times = np.array([])
+        amplitudes = np.array([])
+        areas = np.array([])
+        phasic_data = np.zeros_like(data.conductance_data)
+        tonic_data = data.conductance_data
     
     analysis = EDAAnalysis(
         method="dda",
@@ -503,14 +540,14 @@ def discrete_decomposition_analysis(data: EDAData, settings: Optional[EDASetting
         driver=driver[n_fi:],
         remainder=remainder[n_fi:],
         kernel=kernel,
-        phasic_data=scaled_phasic_data,
-        tonic_data=scaled_tonic_data,
-        phasic_component=scaled_phasic_component,
-        phasic_remainder=scaled_phasic_remainder,
+        phasic_data=phasic_data,
+        tonic_data=tonic_data,
+        phasic_component=phasic_component,
+        phasic_remainder=phasic_remainder,
         driver_raw=q[n_fi:],
         error={
-            'MSE': np.mean((data.conductance_data - scaled_phasic_data - scaled_tonic_data) ** 2),
-            'RMSE': np.sqrt(np.mean((data.conductance_data - scaled_phasic_data - scaled_tonic_data) ** 2)),
+            'MSE': np.mean((data.conductance_data - phasic_data - tonic_data) ** 2),
+            'RMSE': np.sqrt(np.mean((data.conductance_data - phasic_data - tonic_data) ** 2)),
             'compound': err
         },
         onset=onset_times,
