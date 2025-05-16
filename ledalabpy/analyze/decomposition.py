@@ -42,7 +42,8 @@ def segment_driver(driver: np.ndarray, remainder: np.ndarray,
             after_val = driver[after_idx[0]]
             peak_val = driver[max_idx[i]]
             
-            if max(peak_val - before_val, peak_val - after_val) > threshold:
+            # Use a less strict condition for peak detection
+            if (peak_val - before_val > threshold) or (peak_val - after_val > threshold):
                 sign_peaks.append(max_idx[i])
                 min_before_after.append([before_idx[-1], after_idx[0]])
                 
@@ -102,7 +103,8 @@ def deconvolve(data: np.ndarray, kernel: np.ndarray) -> Tuple[np.ndarray, np.nda
     tuple
         (deconvolved_data, remainder)
     """
-    kernel = kernel / np.sum(kernel)
+    eps = np.finfo(float).eps
+    kernel = kernel / (np.sum(kernel) + eps)
     
     n = len(data)
     m = len(kernel)
@@ -113,7 +115,8 @@ def deconvolve(data: np.ndarray, kernel: np.ndarray) -> Tuple[np.ndarray, np.nda
     kernel_fft = np.fft.fft(padded_kernel)
     
     eps = np.finfo(float).eps
-    result_fft = data_fft / (kernel_fft + eps)
+    kernel_fft_safe = np.where(np.abs(kernel_fft) < eps * 10, eps * 10, kernel_fft)
+    result_fft = data_fft / kernel_fft_safe
     
     result = np.real(np.fft.ifft(result_fft))
     

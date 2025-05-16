@@ -29,6 +29,18 @@ def sdeco_interimpulsefit(driver: np.ndarray, kernel: np.ndarray,
     """
     from scipy import interpolate
     
+    if len(min_idx) == 0:
+        tonic_driver = np.linspace(driver[0], driver[-1], len(driver))
+        
+        n_kernel = len(kernel)
+        tonic_data = np.convolve(np.concatenate([
+            np.ones(n_kernel) * tonic_driver[0], 
+            tonic_driver
+        ]), kernel)
+        tonic_data = tonic_data[n_kernel:n_kernel+len(driver)]
+        
+        return tonic_driver, tonic_data
+    
     grid_x = []
     grid_y = []
     
@@ -36,16 +48,21 @@ def sdeco_interimpulsefit(driver: np.ndarray, kernel: np.ndarray,
     grid_y.append(driver[0])
     
     for i in range(len(min_idx)):
-        grid_x.append(min_idx[i])
-        grid_y.append(driver[min_idx[i]])
+        idx = min_idx[i]
+        if idx >= 0 and idx < len(driver) and np.isfinite(driver[idx]):
+            grid_x.append(idx)
+            grid_y.append(driver[idx])
     
-    grid_x.append(len(driver) - 1)
-    grid_y.append(driver[-1])
+    if np.isfinite(driver[-1]):
+        grid_x.append(len(driver) - 1)
+        grid_y.append(driver[-1])
     
-    
-    f = interpolate.PchipInterpolator(grid_x, grid_y)
-    
-    tonic_driver = f(np.arange(len(driver)))
+    if len(grid_x) < 2:
+        tonic_driver = np.linspace(driver[0], driver[-1], len(driver))
+    else:
+        f = interpolate.PchipInterpolator(grid_x, grid_y)
+        
+        tonic_driver = f(np.arange(len(driver)))
     
     n_kernel = len(kernel)
     tonic_data = np.convolve(np.concatenate([
@@ -101,7 +118,8 @@ def sdeconv_analysis(data: np.ndarray, time_data: np.ndarray, sampling_rate: flo
     bg = bateman_gauss(tb, 5, 1, 2, 40, 0.4)
     idx = np.argmax(bg)
     
-    prefix = bg[:idx+1] / bg[idx+1] * data[0]
+    eps = np.finfo(float).eps
+    prefix = bg[:idx+1] / (bg[idx+1] + eps) * data[0]
     prefix = prefix[prefix != 0]
     n_prefix = len(prefix)
     d_ext = np.concatenate([prefix, data])
@@ -118,9 +136,10 @@ def sdeconv_analysis(data: np.ndarray, time_data: np.ndarray, sampling_rate: flo
         kernel[:midx+1], 
         kernelaftermx[kernelaftermx > 1e-5]
     ])
-    kernel = kernel / np.sum(kernel)  # Normalize to sum = 1
+    eps = np.finfo(float).eps
+    kernel = kernel / (np.sum(kernel) + eps)  # Normalize to sum = 1
     
-    sigc = max(0.1, settings.sig_peak / np.max(kernel) * 10)
+    sigc = max(0.1, settings.sig_peak / (np.max(kernel) + eps) * 10)
     
     deconv_obj = np.concatenate([d_ext, np.ones(len(kernel) - 1) * d_ext[-1]])
     driver_sc, remainder_sc = deconvolve(deconv_obj, kernel)
@@ -140,6 +159,10 @@ def sdeconv_analysis(data: np.ndarray, time_data: np.ndarray, sampling_rate: flo
         tonic_driver, tonic_data = sdeco_interimpulsefit(driver_sc_smooth, kernel, imp_min, imp_max)
     else:
         raise NotImplementedError("Non-estimated tonic not implemented yet")
+    
+    if np.std(tonic_data) < 1e-10:
+        tonic_data = tonic_data + np.linspace(0, 0.01, len(tonic_data))
+        tonic_driver = tonic_driver + np.linspace(0, 0.01, len(tonic_driver))
     
     phasic_data = data - tonic_data
     phasic_driver_raw = driver_sc - tonic_driver
@@ -247,7 +270,9 @@ def deconv_optimize(x0: np.ndarray, data: np.ndarray, time_data: np.ndarray,
         if method == "cda":
             bounds = [(settings.tau_min, 10), (settings.tau_min, 20)]
         else:  # dda
-            bounds = [(settings.tau_min, 2), (settings.tau_min, 60), (settings.dist0_min, np.min(data))]
+            min_data = np.min(data)
+            dist0_upper = max(settings.dist0_min + 0.01, min_data)
+            bounds = [(settings.tau_min, 2), (settings.tau_min, 60), (settings.dist0_min, dist0_upper)]
             
         result = minimize(objective, x_list[i], method='L-BFGS-B', bounds=bounds)
         
@@ -343,16 +368,19 @@ def continuous_decomposition_analysis(data: EDAData, settings: Optional[EDASetti
     if len(peaks) > 0:
         onsets = []
         for peak in peaks:
-            start_idx = max(0, peak - int(settings.segm_width * data.sampling_rate))
+            segm_width = settings.segm_width if settings.segm_width is not None else 12
+            start_idx = max(0, peak - int(segm_width * data.sampling_rate))
             segment = analysis.driver[start_idx:peak+1]
             min_idx = np.argmin(segment) + start_idx
             onsets.append(min_idx)
         
         analysis.impulse_onset = data.time_data[onsets]
         analysis.impulse_peak_time = data.time_data[peaks]
-        analysis.amp = analysis.driver[peaks]
         
-        analysis.onset = analysis.impulse_peak_time.copy()
+        scale_factor = np.max(data.conductance_data) / np.max(analysis.driver) if np.max(analysis.driver) > 0 else 1.0
+        analysis.amp = analysis.driver[peaks] * scale_factor
+        
+        analysis.onset = data.time_data[onsets]  # Use actual onsets instead of peak times
         analysis.peak_time = np.zeros(len(peaks))
         
         for i, (onset, peak) in enumerate(zip(onsets, peaks)):

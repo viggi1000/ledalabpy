@@ -101,7 +101,7 @@ def deconv_analysis(data: np.ndarray, time_data: np.ndarray, sampling_rate: floa
     """
     x[0] = within_limits(x[0], settings.tau_min, 2)
     x[1] = within_limits(x[1], settings.tau_min, settings.tau_max)
-    x[2] = within_limits(x[2], settings.dist0_min, np.min(data))
+    x[2] = within_limits(x[2], settings.dist0_min, 10.0)
     
     if x[1] < x[0]:
         x[0], x[1] = x[1], x[0]
@@ -122,7 +122,8 @@ def deconv_analysis(data: np.ndarray, time_data: np.ndarray, sampling_rate: floa
     bg = bateman_gauss(tb, 5, 1, tau[0], tau[1], 0.4)
     idx = np.argmax(bg)
     
-    fade_in = bg[:idx+10] / bg[idx+10] * data[0]
+    eps = np.finfo(float).eps
+    fade_in = bg[:idx+10] / (bg[idx+10] + eps) * data[0]
     fade_in = fade_in[fade_in != 0]
     n_fi = len(fade_in)
     d_ext = np.concatenate([fade_in, data])
@@ -132,16 +133,19 @@ def deconv_analysis(data: np.ndarray, time_data: np.ndarray, sampling_rate: floa
     tb = t_ext - t_ext[0] + dt
     
     kernel = bateman_gauss(tb, 0, 0, tau[0], tau[1], 0)
-    kernel = kernel / np.sum(kernel)  # Normalize to sum = 1
+    kernel = kernel / (np.sum(kernel) + eps)  # Normalize to sum = 1
     kernel[kernel == 0] = 10 * np.finfo(float).eps
     
-    sigc = max(0.01, 2 * settings.sig_peak / np.max(bg))
+    eps = np.finfo(float).eps
+    sigc = max(0.01, 2 * settings.sig_peak / (np.max(bg) + eps))
     
-    qt = np.deconvolve(np.concatenate([d_ext, np.ones(len(kernel) - 1) * d_ext[-1]]), kernel)[0]
+    from .decomposition import deconvolve
+    qt, _ = deconvolve(np.concatenate([d_ext, np.ones(len(kernel) - 1) * d_ext[-1]]), kernel)
     qts = smooth(qt, swin, 'gauss')
     
+    segm_width = round(sampling_rate * (settings.segm_width if settings.segm_width is not None else 12))
     onset_idx, impulse, overshoot, imp_min, imp_max = segment_driver(
-        qts, np.zeros_like(qts), sigc * 20, round(sampling_rate * settings.segm_width)
+        qts, np.zeros_like(qts), sigc * 20, segm_width
     )
     
     targetdata_min = interimpulsefit(qts, t_ext, imp_min, imp_max)
@@ -151,7 +155,8 @@ def deconv_analysis(data: np.ndarray, time_data: np.ndarray, sampling_rate: floa
         x[2] = targetdata_min
     
     d = data + dist0
-    fade_in = bg[:idx+10] / bg[idx+10] * d[0]
+    eps = np.finfo(float).eps
+    fade_in = bg[:idx+10] / (bg[idx+10] + eps) * d[0]
     fade_in = fade_in[fade_in != 0]
     n_fi = len(fade_in)
     d_ext = np.concatenate([fade_in, d])
@@ -161,11 +166,12 @@ def deconv_analysis(data: np.ndarray, time_data: np.ndarray, sampling_rate: floa
     driver = smooth(q, swin, 'gauss')
     remd = smooth(r, swin, 'gauss')
     
-    q0 = np.deconvolve(np.concatenate([d_ext, np.ones(len(kernel) - 1) * d_ext[-1]]), kernel)[0]
+    q0, _ = deconvolve(np.concatenate([d_ext, np.ones(len(kernel) - 1) * d_ext[-1]]), kernel)
     q0s = smooth(q0, swin, 'gauss')
     
+    segm_width = round(sampling_rate * (settings.segm_width if settings.segm_width is not None else 12))
     onset_idx, impulse, overshoot, imp_min, imp_max = segment_driver(
-        driver, remd, sigc, round(sampling_rate * settings.segm_width)
+        driver, remd, sigc, segm_width
     )
     
     n_ext = len(t_ext)
@@ -198,6 +204,7 @@ def deconv_analysis(data: np.ndarray, time_data: np.ndarray, sampling_rate: floa
     
     phasic_data = phasic_remainder[-1]
     
+    onset_idx = onset_idx.astype(int)
     onset = t_ext[onset_idx]
     tidx = np.where(onset >= 0)[0]
     n_offset = len(t_ext) - len(time_data)
@@ -273,7 +280,7 @@ def discrete_decomposition_analysis(data: EDAData, settings: Optional[EDASetting
             target_time, target_data = downsamp(data.time_data, data.conductance_data, int(fac))
             target_sr = fs_list[idx]
     
-    x = np.array([settings.tau0_nndeco[0], settings.tau0_nndeco[1], 0])  # Initial tau1, tau2, dist0
+    x = np.array([settings.tau0_nndeco[0], settings.tau0_nndeco[1], 0.1])  # Initial tau1, tau2, dist0
     err, x = deconv_analysis(target_data, target_time, target_sr, x, settings)
     
     if optimize > 0:
@@ -286,12 +293,13 @@ def discrete_decomposition_analysis(data: EDAData, settings: Optional[EDASetting
     err, x = deconv_analysis(data.conductance_data, data.time_data, data.sampling_rate, x, settings)
     
     tau = x[:2]
-    dist0 = x[2]
+    dist0 = min(x[2], 10.0)  # Cap at 10.0 which is a reasonable maximum
     
     dt = 1 / data.sampling_rate
     tb = data.time_data - data.time_data[0] + dt
     kernel = bateman_gauss(tb, 0, 0, tau[0], tau[1], 0)
-    kernel = kernel / np.sum(kernel)
+    eps = np.finfo(float).eps
+    kernel = kernel / (np.sum(kernel) + eps)  # Add epsilon to prevent division by zero
     
     d = data.conductance_data + dist0
     
@@ -300,7 +308,8 @@ def discrete_decomposition_analysis(data: EDAData, settings: Optional[EDASetting
     
     bg = bateman_gauss(tb, 5, 1, tau[0], tau[1], 0.4)
     idx = np.argmax(bg)
-    fade_in = bg[:idx+10] / bg[idx+10] * d[0]
+    eps = np.finfo(float).eps
+    fade_in = bg[:idx+10] / (bg[idx+10] + eps) * d[0]
     fade_in = fade_in[fade_in != 0]
     n_fi = len(fade_in)
     d_ext = np.concatenate([fade_in, d])
@@ -310,10 +319,11 @@ def discrete_decomposition_analysis(data: EDAData, settings: Optional[EDASetting
     
     q, r = longdiv(d_ext, kernel)
     driver = smooth(q, swin, 'gauss')
-    remainder = smooth(r[:n_fi + len(data)], swin, 'gauss')
+    remainder = smooth(r[:n_fi + len(data.conductance_data)], swin, 'gauss')
     
-    sigc = max(0.01, 2 * settings.sig_peak / np.max(bg))
-    segm_width = round(data.sampling_rate * settings.segm_width) if settings.segm_width else round(data.sampling_rate * 12)
+    eps = np.finfo(float).eps
+    sigc = max(0.001, settings.sig_peak / (np.max(bg) + eps))
+    segm_width = round(data.sampling_rate * (settings.segm_width if settings.segm_width is not None else 12))
     onset_idx, impulse, overshoot, imp_min, imp_max = segment_driver(
         driver[n_fi:], remainder[n_fi:], sigc, segm_width
     )
