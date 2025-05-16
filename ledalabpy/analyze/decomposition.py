@@ -30,7 +30,7 @@ def segment_driver(driver: np.ndarray, remainder: np.ndarray,
     if len(max_idx) == 0:
         return np.array([]), [], [], np.array([]), np.array([])
     
-    sign_peaks = []
+    dmm = []
     min_before_after = []
     
     for i in range(len(max_idx)):
@@ -42,16 +42,22 @@ def segment_driver(driver: np.ndarray, remainder: np.ndarray,
             after_val = driver[after_idx[0]]
             peak_val = driver[max_idx[i]]
             
-            # Use a less strict condition for peak detection
-            if (peak_val - before_val > threshold) or (peak_val - after_val > threshold):
-                sign_peaks.append(max_idx[i])
-                min_before_after.append([before_idx[-1], after_idx[0]])
+            dmm.append([peak_val - before_val, peak_val - after_val])
+            min_before_after.append([before_idx[-1], after_idx[0]])
+    
+    sign_peaks = []
+    sign_min_before_after = []
+    
+    for i, (before_diff, after_diff) in enumerate(dmm):
+        if max(before_diff, after_diff) > threshold:
+            sign_peaks.append(max_idx[i])
+            sign_min_before_after.append(min_before_after[i])
                 
     if len(sign_peaks) == 0:
         return np.array([]), [], [], np.array([]), np.array([])
         
     max_idx = np.array(sign_peaks)
-    min_idx = np.array(min_before_after)
+    min_idx = np.array(sign_min_before_after)
     
     onset_idx = []
     impulse_list = []
