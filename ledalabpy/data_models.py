@@ -12,6 +12,12 @@ class EDASetting:
     sig_peak: float = 0.001
     segm_width: Optional[float] = None
     
+    peak_detection_threshold: Optional[float] = None  # Default: 0.00000001 (set in implementation)
+    
+    amplitude_scaling: Optional[float] = None  # General amplitude scaling (overrides method-specific)
+    amplitude_scaling_cda: Optional[float] = None  # Default: 400.0 (set in implementation)
+    amplitude_scaling_dda: Optional[float] = None  # Default: 10000.0 (set in implementation)
+    
     tau0_sdeco: List[float] = field(default_factory=lambda: [1.0, 3.75])
     smoothwin_sdeco: float = 0.2
     tonic_grid_size_sdeco: float = 10.0
