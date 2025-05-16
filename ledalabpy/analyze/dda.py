@@ -437,7 +437,7 @@ def discrete_decomposition_analysis(data: EDAData, settings: Optional[EDASetting
     
     tonic_data = np.ones_like(data.conductance_data) * np.mean(data.conductance_data)
     
-    sigc = 0.0000001  # Very low threshold to detect more peaks
+    sigc = 0.00000001  # Ultra-low threshold to match MATLAB reference
     segm_width = round(data.sampling_rate * (settings.segm_width if settings.segm_width is not None else 12))
     
     from ..utils.math_utils import get_peaks
