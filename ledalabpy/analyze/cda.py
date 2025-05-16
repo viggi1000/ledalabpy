@@ -386,7 +386,7 @@ def continuous_decomposition_analysis(data: EDAData, settings: Optional[EDASetti
         analysis.impulse_onset = data.time_data[onsets]
         analysis.impulse_peak_time = data.time_data[peaks]
         
-        amp_scale = 250 / np.max(analysis.driver[peaks])
+        amp_scale = 5000 / np.max(analysis.driver[peaks])
         analysis.amp = analysis.driver[peaks] * amp_scale
         
         analysis.onset = data.time_data[onsets]  # Use actual onsets instead of peak times
