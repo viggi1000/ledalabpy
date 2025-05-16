@@ -444,9 +444,7 @@ def discrete_decomposition_analysis(data: EDAData, settings: Optional[EDASetting
     min_idx, max_idx = get_peaks(driver[n_fi:])
     
     if len(max_idx) > 0:
-        sign_peaks = []
-        min_before_after = []
-        
+        dmm = []
         for i in range(len(max_idx)):
             before_idx = min_idx[min_idx < max_idx[i]]
             after_idx = min_idx[min_idx > max_idx[i]]
@@ -456,9 +454,18 @@ def discrete_decomposition_analysis(data: EDAData, settings: Optional[EDASetting
                 after_val = driver[n_fi:][after_idx[0]]
                 peak_val = driver[n_fi:][max_idx[i]]
                 
-                if max(peak_val - before_val, peak_val - after_val) > sigc:
-                    sign_peaks.append(max_idx[i])
-                    min_before_after.append([before_idx[-1], after_idx[0]])
+                dmm.append([peak_val - before_val, peak_val - after_val])
+        
+        sign_peaks = []
+        min_before_after = []
+        
+        for i, (before_diff, after_diff) in enumerate(dmm):
+            if max(before_diff, after_diff) > sigc:
+                sign_peaks.append(max_idx[i])
+                
+                before_idx = min_idx[min_idx < max_idx[i]][-1]
+                after_idx = min_idx[min_idx > max_idx[i]][0]
+                min_before_after.append([before_idx, after_idx])
     
     if len(sign_peaks) == 0:
         onset_idx, impulse, overshoot, imp_min, imp_max = segment_driver(
