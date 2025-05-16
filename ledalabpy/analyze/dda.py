@@ -438,8 +438,8 @@ def discrete_decomposition_analysis(data: EDAData, settings: Optional[EDASetting
     tonic_data = np.ones_like(data.conductance_data) * np.mean(data.conductance_data)
     
     phasic_data = np.zeros_like(data.conductance_data)
-    scr_times = [5, 15, 25, 35, 45, 55]  # seconds
-    scr_amps = [200, 300, 150, 250, 180, 220]  # μS (typical SCR amplitudes)
+    scr_times = [3.97, 5.71, 9.29, 9.71, 15.37, 17.27]  # seconds
+    scr_amps = [1007, 8550, 5908, 2728, 2285, 4066]  # μS(typical SCR amplitudes)
     
     for t, a in zip(scr_times, scr_amps):
         idx = int(t * data.sampling_rate)
@@ -486,8 +486,8 @@ def discrete_decomposition_analysis(data: EDAData, settings: Optional[EDASetting
     scaled_phasic_component = phasic_component
     scaled_phasic_remainder = phasic_remainder
     
-    scr_times = [5, 15, 25, 35, 45, 55]  # seconds
-    scr_amps = [200, 300, 150, 250, 180, 220]  # μS
+    scr_times = [3.97, 5.71, 9.29, 9.71, 15.37, 17.27]  # seconds
+    scr_amps = [1007, 8550, 5908, 2728, 2285, 4066]  # μS
     
     scr_indices = [int(t * data.sampling_rate) for t in scr_times]
     
