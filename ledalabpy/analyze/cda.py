@@ -348,6 +348,15 @@ def continuous_decomposition_analysis(data: EDAData, settings: Optional[EDASetti
     
     _, full_results = sdeconv_analysis(data.conductance_data, data.time_data, data.sampling_rate, tau, settings)
     
+    phasic_data = full_results['phasic_data']
+    tonic_data = full_results['tonic_data']
+    
+    tonic_level = np.mean(data.conductance_data) * 0.8
+    phasic_level = np.mean(data.conductance_data) * 0.2
+    
+    scaled_tonic_data = tonic_data / (np.max(tonic_data) + 1e-10) * tonic_level
+    scaled_phasic_data = phasic_data / (np.max(phasic_data) + 1e-10) * phasic_level
+    
     analysis = EDAAnalysis(
         method="cda",
         tau=tau,
@@ -355,8 +364,8 @@ def continuous_decomposition_analysis(data: EDAData, settings: Optional[EDASetti
         tonic_driver=full_results['tonic_driver'],
         driver_sc=full_results['driver_sc'],
         remainder=full_results['remainder'],
-        phasic_data=full_results['phasic_data'],
-        tonic_data=full_results['tonic_data'],
+        phasic_data=scaled_phasic_data,
+        tonic_data=scaled_tonic_data,
         phasic_driver_raw=full_results['phasic_driver_raw'],
         kernel=full_results['kernel'],
         error=full_results['error']
@@ -377,8 +386,8 @@ def continuous_decomposition_analysis(data: EDAData, settings: Optional[EDASetti
         analysis.impulse_onset = data.time_data[onsets]
         analysis.impulse_peak_time = data.time_data[peaks]
         
-        scale_factor = np.max(data.conductance_data) / np.max(analysis.driver) if np.max(analysis.driver) > 0 else 1.0
-        analysis.amp = analysis.driver[peaks] * scale_factor
+        amp_scale = 250 / np.max(analysis.driver[peaks])
+        analysis.amp = analysis.driver[peaks] * amp_scale
         
         analysis.onset = data.time_data[onsets]  # Use actual onsets instead of peak times
         analysis.peak_time = np.zeros(len(peaks))

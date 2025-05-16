@@ -27,17 +27,22 @@ def analyze_mat_file(file_path, method="cda", optimize=2, output_dir=None):
     
     mat_data = scipy.io.loadmat(file_path)
     
-    if 'data' in mat_data and 'conductance' in mat_data['data'][0, 0]:
-        raw_data = np.array(mat_data['data']['conductance'][0, 0][0], dtype='float64')
-        
-        sampling_rate = 100.0  # Default
-        if 'samplingrate' in mat_data['data'][0, 0]:
-            sampling_rate = float(mat_data['data']['samplingrate'][0, 0][0, 0])
-    else:
+    if 'data' in mat_data:
+        try:
+            raw_data = np.array(mat_data['data']['conductance'][0, 0][0], dtype='float64')
+            sampling_rate = 100.0  # Default
+            if 'samplingrate' in mat_data['data'][0, 0].dtype.names:
+                sampling_rate = float(mat_data['data']['samplingrate'][0, 0][0, 0])
+        except (IndexError, KeyError, ValueError, TypeError):
+            print("First structure failed, trying alternative...")
+            raw_data = None
+    
+    if 'data' not in mat_data or raw_data is None:
         if 'conductance' in mat_data:
             raw_data = np.array(mat_data['conductance'], dtype='float64')
             sampling_rate = 100.0  # Default
         else:
+            print(f"Available keys in .mat file: {list(mat_data.keys())}")
             raise ValueError("Could not extract EDA data from .mat file")
     
     print(f"Data length: {len(raw_data)} samples ({len(raw_data)/sampling_rate:.2f} seconds)")
