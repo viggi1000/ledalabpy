@@ -4,8 +4,19 @@ A Python port of the Ledalab MATLAB software for electrodermal activity (EDA) an
 
 ## Installation
 
+### From PyPI (Recommended)
 ```bash
 pip install ledalabpy
+```
+
+### From GitHub
+```bash
+# Clone the repository
+git clone https://github.com/viggi1000/ledalabpy.git
+cd ledalabpy
+
+# Install in development mode
+pip install -e .
 ```
 
 ## Usage
